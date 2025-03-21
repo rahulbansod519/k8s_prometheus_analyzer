@@ -13,9 +13,9 @@ setup(
             "k8s-analyze=k8s_prometheus_analyzer.monitor:main"
         ]
     },
-    author="Your Name",
+    author="Rahul Bansod",
     description="CLI tool to analyze Kubernetes resource usage from Prometheus and provide optimization suggestions.",
-    url="https://github.com/yourusername/k8s_prometheus_analyzer",
+    url="https://github.com/rahulbansod519/k8s_prometheus_analyzer",
     classifiers=[
         "Programming Language :: Python :: 3",
         "Operating System :: OS Independent",
