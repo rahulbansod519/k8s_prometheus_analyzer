@@ -37,16 +37,12 @@ def check_prometheus_availability():
         else:
             logging.error(f"❌ Prometheus responded with status {response.status_code}.")
             return False
-    except requests.exceptions.ConnectionError:
-        logging.error("❌ Prometheus not available: Connection Error.")
-    except requests.exceptions.Timeout:
-        logging.error("❌ Prometheus not available: Timeout Error.")
     except requests.exceptions.RequestException as e:
-        logging.error(f"❌ Unexpected error while checking Prometheus: {e}")
+        logging.error(f"❌ Prometheus not available: {e}")
     return False
 
 def query_prometheus(query):
-    """Fetch data securely from Prometheus API using session reuse"""
+    """Fetch data securely from Prometheus API"""
     try:
         with requests.Session() as session:
             response = session.get(PROMETHEUS_URL, params={"query": query}, timeout=5)
@@ -79,21 +75,44 @@ def analyze_usage(cpu_data, memory_data, cpu_requests, memory_requests):
             cpu_percentage = (cpu_usage / cpu_request * 100) if cpu_request and cpu_request > 0 else 0
             mem_percentage = (mem_usage / mem_request * 100) if mem_request and mem_request > 0 else 0
 
-            suggestion, reason = [], []
+            suggestions = []
+            reasons = []
 
+            # Optimize CPU Requests if Usage is Low
             if cpu_request and cpu_usage < 0.1:
-                suggestion.append("Reduce CPU requests")
-                reason.append(f"Low CPU usage ({cpu_usage:.2f} cores) vs request ({cpu_request:.2f} cores)")
+                suggestions.append("Reduce CPU requests")
+                reasons.append(f"CPU usage ({cpu_usage:.2f} cores) is far lower than request ({cpu_request:.2f} cores)")
 
+            # Optimize Memory Requests if Usage is Low
             if mem_request and mem_usage < 50:
-                suggestion.append("Reduce memory requests")
-                reason.append(f"Low Memory usage ({mem_usage:.2f} MB) vs request ({mem_request:.2f} MB)")
+                suggestions.append("Reduce memory requests")
+                reasons.append(f"Memory usage ({mem_usage:.2f} MB) is significantly lower than request ({mem_request:.2f} MB)")
 
-            if cpu_percentage > 80 or mem_usage > 500:
-                suggestion.append("Consider scaling replicas")
-                reason.append(f"High resource usage: CPU {cpu_percentage:.1f}%, Memory {mem_usage:.2f} MB")
+            # Detect Overutilized Pods (High CPU/Memory Usage)
+            if cpu_percentage > 80:
+                suggestions.append("Increase CPU limits or add replicas")
+                reasons.append(f"High CPU utilization: {cpu_percentage:.1f}%")
 
-            if suggestion:
+            if mem_usage > 500:
+                suggestions.append("Increase Memory limits")
+                reasons.append(f"Memory usage is high: {mem_usage:.2f} MB")
+
+            # Detect CPU Throttling (If Actual Usage is Much Higher Than Requests)
+            if cpu_request and cpu_usage > cpu_request:
+                suggestions.append("Increase CPU requests")
+                reasons.append(f"CPU usage ({cpu_usage:.2f} cores) exceeds requested ({cpu_request:.2f} cores)")
+
+            # Detect Memory Overcommitment (Requests Too High)
+            if mem_request and mem_request > mem_usage * 3:
+                suggestions.append("Reduce memory requests")
+                reasons.append(f"Memory request ({mem_request:.2f} MB) is significantly higher than usage ({mem_usage:.2f} MB)")
+
+            # If the pod is very underutilized, suggest reducing replicas
+            if cpu_usage < 0.05 and mem_usage < 20:
+                suggestions.append("Consider reducing replicas")
+                reasons.append("Pod is using minimal resources")
+
+            if suggestions:
                 recommendations.append({
                     "namespace": namespace,
                     "pod_name": pod,
@@ -101,8 +120,8 @@ def analyze_usage(cpu_data, memory_data, cpu_requests, memory_requests):
                     "cpu_percentage": f"{cpu_percentage:.1f}%",
                     "memory_usage": f"{mem_usage:.2f} MB",
                     "memory_percentage": f"{mem_percentage:.1f}%",
-                    "suggested_optimization": ", ".join(suggestion),
-                    "reason": "; ".join(reason)
+                    "suggested_optimization": ", ".join(suggestions),
+                    "reason": "; ".join(reasons)
                 })
 
         except (KeyError, ValueError, TypeError) as e:
@@ -111,7 +130,7 @@ def analyze_usage(cpu_data, memory_data, cpu_requests, memory_requests):
     return recommendations
 
 def display_recommendations(recommendations):
-    """Formats and displays optimization recommendations in a clean table format"""
+    """Formats and displays optimization recommendations"""
     headers = ["Namespace", "Pod Name", "CPU Usage", "CPU %", "Memory Usage", "Memory %", "Suggested Optimization"]
 
     formatted_recommendations = [
@@ -127,7 +146,7 @@ def display_recommendations(recommendations):
         logging.info("✅ No optimizations needed. All pods are well-optimized.")
 
 def export_to_json(recommendations, filename="optimization_suggestions.json"):
-    """Exports recommendations to a JSON file securely"""
+    """Exports recommendations to a JSON file"""
     try:
         with open(filename, "w") as json_file:
             json.dump(recommendations, json_file, indent=4)
@@ -151,7 +170,6 @@ def main():
     cpu_requests = query_prometheus(QUERIES["cpu_requests"])
     memory_requests = query_prometheus(QUERIES["memory_requests"])
 
-    logging.info("🔎 Analyzing resource usage...")
     recommendations = analyze_usage(cpu_data, memory_data, cpu_requests, memory_requests)
 
     display_recommendations(recommendations)
