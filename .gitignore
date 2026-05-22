@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.pycache/
+*.cover
+.coverage
+coverage.xml
+htmlcov/
+*.egg-info/
+build/
+dist/
+.eggs/
+*.egg
+*.manifest
+*.spec
+
+# Virtual environments
+venv/
+.env
+.env.*
+.venv/
+
+# IDE files
+.vscode/
+.idea/
+
+# macOS
+.DS_Store
+
+# Logs
+*.log
+
+# Pytest
+.cache/
+
+# mypy
+.mypy_cache/
+
+# local configuration
+config.yaml

@@ -1,0 +1,43 @@
+# k8s-prometheus-analyzer configuration
+# Copy this file to ~/.k8s-analyzer.yaml or pass with --config path/to/config.yaml
+#
+# Priority order (highest wins): CLI flags → env vars (K8S_ANALYZER_*) → this file → defaults
+
+# ── Prometheus connection ────────────────────────────────────────────────────
+prometheus_url: "http://localhost:9090"
+
+# Authentication: "none" | "bearer" | "basic"
+auth_type: "none"
+
+# Bearer token auth (used when auth_type: bearer)
+token: ""
+
+# Basic auth (used when auth_type: basic)
+username: ""
+password: ""
+
+# TLS settings
+verify_ssl: true
+ca_cert: ""               # Path to a CA bundle file for custom/self-signed certs
+
+# ── HTTP client settings ─────────────────────────────────────────────────────
+timeout: 10               # Request timeout in seconds
+retries: 3                # Number of retries on transient failures (500/502/503/504)
+
+# ── Output ───────────────────────────────────────────────────────────────────
+output: "optimization_suggestions.json"
+
+# ── Logging ──────────────────────────────────────────────────────────────────
+log_level: "INFO"         # DEBUG | INFO | WARNING | ERROR
+log_format: "text"        # text | json  (use json for log aggregation pipelines)
+
+# ── Analysis thresholds ───────────────────────────────────────────────────────
+# Tune these to match your cluster's workload characteristics.
+thresholds:
+  cpu_low: 0.1            # CPU (cores) below which requests are considered over-provisioned
+  mem_low_mb: 50.0        # Memory (MB) below which requests are considered over-provisioned
+  cpu_high_pct: 80.0      # CPU utilisation % above which scaling is recommended
+  mem_high_mb: 500.0      # Memory (MB) above which limits should be reviewed
+  mem_overcommit_ratio: 3.0  # request/usage ratio above which over-provisioning is flagged
+  replica_cpu_low: 0.05   # CPU threshold for "consider reducing replicas" suggestion
+  replica_mem_low_mb: 20.0   # Memory threshold for "consider reducing replicas" suggestion
