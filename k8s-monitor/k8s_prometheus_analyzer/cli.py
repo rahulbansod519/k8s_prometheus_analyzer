@@ -18,8 +18,9 @@ from typing import NoReturn
 from .alerting.dispatcher import dispatch
 from .analyzer import SEVERITY_CRITICAL, analyze
 from .config import load_config
-from .exceptions import ConfigError, K8sAnalyzerError
+from .exceptions import ConfigError, K8sAnalyzerError, LicenseLimitExceededError
 from .fetcher import PrometheusClient
+from .license import verify_license
 from .reporter import html_report, json_report, table
 from .workload import aggregate_metrics, resolve_workload_map
 
@@ -181,6 +182,12 @@ exit codes:
         help="Path to a YAML config file",
     )
 
+    parser.add_argument(
+        "--license-file",
+        metavar="PATH",
+        help="Path to the enterprise license file (license.jwt)",
+    )
+
     alert = parser.add_argument_group("alerting")
     alert.add_argument(
         "--alert-slack-url",
@@ -205,6 +212,20 @@ exit codes:
     )
 
     return parser
+
+
+def get_node_count(client: PrometheusClient) -> int:
+    """Query Prometheus for the active node count in the cluster.
+
+    Default to 1 if the query fails or returns no nodes.
+    """
+    try:
+        res = client.query("count(kube_node_info)")
+        if res and "value" in res[0] and len(res[0]["value"]) > 1:
+            return int(res[0]["value"][1])
+    except Exception as exc:
+        logger.warning("Failed to query node count from Prometheus: %s. Defaulting to 1.", exc)
+    return 1
 
 
 # ---------------------------------------------------------------------------
@@ -251,6 +272,8 @@ def main() -> NoReturn:
         cfg.log_level = args.log_level
     if args.log_format is not None:
         cfg.log_format = args.log_format
+    if args.license_file is not None:
+        cfg.license_file = args.license_file
 
     # ── Alert CLI overrides ───────────────────────────────────────────────
     if args.alert_slack_url:
@@ -276,6 +299,38 @@ def main() -> NoReturn:
     try:
         client = PrometheusClient(cfg)
         client.check_availability()
+
+        # ── License checks ──
+        node_count = get_node_count(client)
+        logger.info("Detected %d active node(s) in the cluster", node_count)
+
+        if cfg.license_file:
+            logger.info("Loading license file from %s", cfg.license_file)
+            try:
+                with open(cfg.license_file) as f:
+                    license_token = f.read().strip()
+            except FileNotFoundError as exc:
+                raise ConfigError(f"License file not found: {cfg.license_file}") from exc
+
+            payload = verify_license(license_token)
+            license_limit = payload.get("limits", {}).get("nodes", 0)
+            logger.info(
+                "License verified successfully for %s (Limit: %d nodes)",
+                payload.get("sub", "Unknown Tenant"),
+                license_limit,
+            )
+            if node_count > license_limit:
+                raise LicenseLimitExceededError(
+                    f"Active node count ({node_count}) exceeds your licensed limit of {license_limit} nodes."
+                )
+        else:
+            logger.warning("No license file specified. Running in Community Edition mode.")
+            COMMUNITY_NODE_LIMIT = 15
+            if node_count > COMMUNITY_NODE_LIMIT:
+                raise LicenseLimitExceededError(
+                    f"Free Community Edition is limited to {COMMUNITY_NODE_LIMIT} nodes. "
+                    f"Your cluster has {node_count} nodes. Please purchase an Enterprise license."
+                )
 
         logger.info("Fetching metrics from Prometheus …")
         metrics = client.query_all()

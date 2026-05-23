@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import json
+import time
 from unittest.mock import MagicMock, patch
 
+import jwt
 import pytest
 
 from k8s_prometheus_analyzer import cli
@@ -21,7 +23,15 @@ def _run_cli(*argv: str) -> int:
         try:
             cli.main()
         except SystemExit as exc:
-            return int(exc.code)
+            code = exc.code
+            if isinstance(code, int):
+                return code
+            if isinstance(code, str):
+                try:
+                    return int(code)
+                except ValueError:
+                    return 3
+            return 0
     return 0
 
 
@@ -203,3 +213,115 @@ def test_cli_args_override_config_file(mocker, tmp_path):
         "--log-level", "ERROR",
     )
     assert captured_url.get("url") == "http://cli-override:9090"
+
+
+# ---------------------------------------------------------------------------
+# Licensing Integration Tests
+# ---------------------------------------------------------------------------
+
+
+def test_cli_community_limit_under(mocker, tmp_path):
+    """Under 15 nodes should run successfully in community mode."""
+    _mock_client(mocker)
+    mocker.patch("k8s_prometheus_analyzer.cli.get_node_count", return_value=10)
+    code = _run_cli(
+        "--prometheus-url", "http://prom:9090",
+        "--output", str(tmp_path / "out.json"),
+        "--log-level", "ERROR",
+    )
+    assert code == cli.EXIT_OK
+
+
+def test_cli_community_limit_over(mocker, tmp_path):
+    """Over 15 nodes should fail in community mode (exit code 3)."""
+    _mock_client(mocker)
+    mocker.patch("k8s_prometheus_analyzer.cli.get_node_count", return_value=25)
+    code = _run_cli(
+        "--prometheus-url", "http://prom:9090",
+        "--output", str(tmp_path / "out.json"),
+        "--log-level", "ERROR",
+    )
+    assert code == cli.EXIT_ERROR
+
+
+def test_cli_enterprise_license_valid(mocker, tmp_path):
+    """Valid enterprise license should allow running on larger clusters."""
+    from .test_license import TEST_PRIVATE_KEY, TEST_PUBLIC_KEY
+
+    # Generate a valid JWT for 100 nodes
+    payload = {
+        "sub": "acme-corp",
+        "exp": int(time.time()) + 3600,
+        "limits": {"nodes": 100},
+    }
+    token = jwt.encode(payload, TEST_PRIVATE_KEY, algorithm="RS256")
+
+    license_file = tmp_path / "license.jwt"
+    license_file.write_text(token)
+
+    _mock_client(mocker)
+    mocker.patch("k8s_prometheus_analyzer.cli.get_node_count", return_value=50)
+    mocker.patch("k8s_prometheus_analyzer.license.get_public_key", return_value=TEST_PUBLIC_KEY)
+
+    code = _run_cli(
+        "--prometheus-url", "http://prom:9090",
+        "--output", str(tmp_path / "out.json"),
+        "--license-file", str(license_file),
+        "--log-level", "ERROR",
+    )
+    assert code == cli.EXIT_OK
+
+
+def test_cli_enterprise_license_exceeded(mocker, tmp_path):
+    """Exceeding the licensed node count should fail (exit code 3)."""
+    from .test_license import TEST_PRIVATE_KEY, TEST_PUBLIC_KEY
+
+    payload = {
+        "sub": "acme-corp",
+        "exp": int(time.time()) + 3600,
+        "limits": {"nodes": 100},
+    }
+    token = jwt.encode(payload, TEST_PRIVATE_KEY, algorithm="RS256")
+
+    license_file = tmp_path / "license.jwt"
+    license_file.write_text(token)
+
+    _mock_client(mocker)
+    mocker.patch("k8s_prometheus_analyzer.cli.get_node_count", return_value=120)
+    mocker.patch("k8s_prometheus_analyzer.license.get_public_key", return_value=TEST_PUBLIC_KEY)
+
+    code = _run_cli(
+        "--prometheus-url", "http://prom:9090",
+        "--output", str(tmp_path / "out.json"),
+        "--license-file", str(license_file),
+        "--log-level", "ERROR",
+    )
+    assert code == cli.EXIT_ERROR
+
+
+def test_cli_enterprise_license_expired(mocker, tmp_path):
+    """An expired enterprise license should fail (exit code 3)."""
+    from .test_license import TEST_PRIVATE_KEY, TEST_PUBLIC_KEY
+
+    payload = {
+        "sub": "acme-corp",
+        "exp": int(time.time()) - 3600,
+        "limits": {"nodes": 100},
+    }
+    token = jwt.encode(payload, TEST_PRIVATE_KEY, algorithm="RS256")
+
+    license_file = tmp_path / "license.jwt"
+    license_file.write_text(token)
+
+    _mock_client(mocker)
+    mocker.patch("k8s_prometheus_analyzer.cli.get_node_count", return_value=50)
+    mocker.patch("k8s_prometheus_analyzer.license.get_public_key", return_value=TEST_PUBLIC_KEY)
+
+    code = _run_cli(
+        "--prometheus-url", "http://prom:9090",
+        "--output", str(tmp_path / "out.json"),
+        "--license-file", str(license_file),
+        "--log-level", "ERROR",
+    )
+    assert code == cli.EXIT_ERROR
+

@@ -112,6 +112,7 @@ class Config:
     log_format: str = "text"         # "text" | "json"
     output: str = "optimization_suggestions.json"
     html_output: str = "optimization_report.html"
+    license_file: str = ""
     thresholds: Thresholds = field(default_factory=Thresholds)
     alerts: AlertConfig = field(default_factory=AlertConfig)
 
