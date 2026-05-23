@@ -151,7 +151,8 @@ class PrometheusClient:
 
         try:
             payload = resp.json()
-            return payload["data"]["result"]
+            result: list[dict[str, Any]] = payload["data"]["result"]
+            return result
         except (KeyError, ValueError) as exc:
             raise PrometheusQueryError(
                 f"Unexpected Prometheus response format: {exc}"

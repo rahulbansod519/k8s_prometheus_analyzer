@@ -15,11 +15,12 @@ import logging
 import sys
 from typing import NoReturn
 
+from .alerting.dispatcher import dispatch
 from .analyzer import SEVERITY_CRITICAL, analyze
 from .config import load_config
 from .exceptions import ConfigError, K8sAnalyzerError
 from .fetcher import PrometheusClient
-from .reporter import json_report, table
+from .reporter import html_report, json_report, table
 from .workload import aggregate_metrics, resolve_workload_map
 
 logger = logging.getLogger(__name__)
@@ -45,7 +46,7 @@ def _setup_logging(level: str, fmt: str) -> None:
         try:
             from pythonjsonlogger import jsonlogger  # type: ignore[import]
 
-            formatter = jsonlogger.JsonFormatter(
+            formatter: logging.Formatter = jsonlogger.JsonFormatter(
                 fmt="%(asctime)s %(name)s %(levelname)s %(message)s"
             )
         except ImportError:
@@ -104,6 +105,12 @@ exit codes:
 """,
     )
 
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"%(prog)s {__import__('k8s_prometheus_analyzer').__version__}",
+    )
+
     conn = parser.add_argument_group("connection")
     conn.add_argument(
         "--prometheus-url",
@@ -151,6 +158,11 @@ exit codes:
         help="JSON output file path (default: optimization_suggestions.json)",
     )
     out.add_argument(
+        "--html-output",
+        metavar="FILE",
+        help="HTML report file path (default: optimization_report.html)",
+    )
+    out.add_argument(
         "--log-level",
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
         metavar="LEVEL",
@@ -167,6 +179,29 @@ exit codes:
         "--config",
         metavar="PATH",
         help="Path to a YAML config file",
+    )
+
+    alert = parser.add_argument_group("alerting")
+    alert.add_argument(
+        "--alert-slack-url",
+        metavar="URL",
+        help="Slack incoming webhook URL — enables Slack alerts when set",
+    )
+    alert.add_argument(
+        "--alert-webhook-url",
+        metavar="URL",
+        help="Generic HTTP webhook URL — enables webhook alerts when set",
+    )
+    alert.add_argument(
+        "--alert-on",
+        metavar="SEVERITY",
+        action="append",
+        choices=["critical", "warning", "info"],
+        dest="alert_on",
+        help=(
+            "Severity level that triggers an alert (repeatable). "
+            "Default: critical warning"
+        ),
     )
 
     return parser
@@ -210,10 +245,24 @@ def main() -> NoReturn:
         cfg.retries = args.retries
     if args.output is not None:
         cfg.output = args.output
+    if args.html_output is not None:
+        cfg.html_output = args.html_output
     if args.log_level is not None:
         cfg.log_level = args.log_level
     if args.log_format is not None:
         cfg.log_format = args.log_format
+
+    # ── Alert CLI overrides ───────────────────────────────────────────────
+    if args.alert_slack_url:
+        cfg.alerts.enabled = True
+        cfg.alerts.slack.enabled = True
+        cfg.alerts.slack.webhook_url = args.alert_slack_url
+    if args.alert_webhook_url:
+        cfg.alerts.enabled = True
+        cfg.alerts.webhook.enabled = True
+        cfg.alerts.webhook.url = args.alert_webhook_url
+    if args.alert_on:
+        cfg.alerts.on_severities = args.alert_on
 
     # ── 3. Initialise logging ─────────────────────────────────────────────
     _setup_logging(cfg.log_level, cfg.log_format)
@@ -269,10 +318,20 @@ def main() -> NoReturn:
 
     try:
         json_report.export_json(recommendations, cfg.output)
-    except OSError:
+    except OSError as exc:
+        logger.error("Failed to write JSON report: %s", exc)
         sys.exit(EXIT_ERROR)
 
-    # ── 8. Exit with meaningful code ──────────────────────────────────────
+    try:
+        html_report.export_html(recommendations, cfg.html_output, cfg.prometheus_url)
+    except OSError as exc:
+        logger.error("Failed to write HTML report: %s", exc)
+        # Non-fatal: JSON was already written
+
+    # ── 8. Alert ──────────────────────────────────────────────────────────
+    dispatch(recommendations, cfg.alerts, cfg.prometheus_url)
+
+    # ── 9. Exit with meaningful code ──────────────────────────────────────
     if not recommendations:
         sys.exit(EXIT_OK)
 

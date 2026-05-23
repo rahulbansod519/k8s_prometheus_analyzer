@@ -1,0 +1,139 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+  packages: write
+
+defaults:
+  run:
+    working-directory: k8s-monitor
+
+jobs:
+  # ── Validate before releasing ────────────────────────────────────────────────
+  test:
+    name: Tests (Python 3.12)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install package + dev dependencies
+        run: pip install -e ".[dev]"
+
+      - name: Run pytest
+        run: pytest --cov=k8s_prometheus_analyzer --cov-fail-under=80 -q
+
+  # ── Publish to PyPI ──────────────────────────────────────────────────────────
+  pypi:
+    name: Publish to PyPI
+    runs-on: ubuntu-latest
+    needs: test
+    environment:
+      name: pypi
+      url: https://pypi.org/p/k8s-prometheus-analyzer
+    permissions:
+      id-token: write   # Required for OIDC trusted publishing
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install build tools
+        run: pip install build
+
+      - name: Build wheel + sdist
+        run: python -m build
+
+      - name: Publish to PyPI (trusted publishing)
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: k8s-monitor/dist/
+
+  # ── Build & push Docker image to GHCR ───────────────────────────────────────
+  docker:
+    name: Docker — GHCR push
+    runs-on: ubuntu-latest
+    needs: test
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/k8s-prometheus-analyzer
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=raw,value=latest
+
+      - name: Build and push image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./k8s-monitor
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: true
+          sbom: true
+
+  # ── Create GitHub Release with notes ────────────────────────────────────────
+  github-release:
+    name: GitHub Release
+    runs-on: ubuntu-latest
+    needs: [pypi, docker]
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          body: |
+            ## Installation
+
+            ```bash
+            pip install k8s-prometheus-analyzer==${{ github.ref_name }}
+            ```
+
+            Or with Docker:
+            ```bash
+            docker pull ghcr.io/${{ github.repository_owner }}/k8s-prometheus-analyzer:${{ github.ref_name }}
+            ```
+
+            See [CHANGELOG](https://github.com/${{ github.repository }}/blob/main/k8s-monitor/CHANGELOG.md) for full details.

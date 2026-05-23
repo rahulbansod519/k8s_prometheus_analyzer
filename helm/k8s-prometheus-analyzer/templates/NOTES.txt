@@ -1,0 +1,46 @@
+Thank you for installing {{ .Chart.Name }} v{{ .Chart.AppVersion }}!
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+A CronJob has been deployed with schedule: {{ .Values.schedule }}
+
+  kubectl get cronjobs -l app.kubernetes.io/name={{ include "k8s-prometheus-analyzer.name" . }}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+TRIGGER A MANUAL RUN:
+
+  kubectl create job --from=cronjob/{{ include "k8s-prometheus-analyzer.fullname" . }} \
+    {{ include "k8s-prometheus-analyzer.fullname" . }}-manual-$(date +%s)
+
+WATCH LOGS:
+
+  kubectl logs -l app.kubernetes.io/name={{ include "k8s-prometheus-analyzer.name" . }} --tail=100 -f
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+CONFIGURATION:
+
+  Prometheus URL : {{ .Values.prometheus.url }}
+  Schedule       : {{ .Values.schedule }}
+  Log format     : {{ .Values.logging.format }}
+  Alerts enabled : {{ .Values.alerts.enabled }}
+
+{{- if not .Values.output.pvc.name }}
+
+⚠  Reports are written to an emptyDir volume and will be lost when the pod exits.
+   Set output.pvc.name to a PVC to persist reports across runs.
+{{- end }}
+
+{{- if not .Values.alerts.enabled }}
+
+💡 To receive Slack alerts on critical issues, run:
+
+  helm upgrade {{ .Release.Name }} . \
+    --set alerts.enabled=true \
+    --set alerts.slack.enabled=true \
+    --set alerts.slack.webhookUrl=https://hooks.slack.com/services/...
+{{- end }}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Docs: https://github.com/rahulbansod519/k8s_prometheus_analyzer

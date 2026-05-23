@@ -5,21 +5,33 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "k8s-prometheus-analyzer"
 version = "0.2.0"
-description = "CLI tool to analyse Kubernetes resource usage from Prometheus and provide optimisation suggestions."
+description = "CLI tool to analyse Kubernetes resource usage from Prometheus and generate optimisation recommendations, HTML reports, and Slack/webhook alerts."
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "MIT"}
 authors = [
-    {name = "Rahul Bansod"}
+    {name = "Rahul Bansod", email = "rahulbansod519@gmail.com"}
+]
+keywords = [
+    "kubernetes", "k8s", "prometheus", "monitoring", "observability",
+    "resource-optimization", "devops", "sre", "cloud-native", "cli",
+    "alerting", "kube-state-metrics", "capacity-planning",
 ]
 classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Intended Audience :: System Administrators",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
-    "Operating System :: OS Independent",
     "Topic :: System :: Monitoring",
     "Topic :: System :: Systems Administration",
+    "Topic :: Utilities",
+    "Typing :: Typed",
 ]
 dependencies = [
     "requests>=2.31.0",
@@ -45,8 +57,10 @@ dev = [
 k8s-analyze = "k8s_prometheus_analyzer.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/rahulbansod519/k8s_prometheus_analyzer"
-Repository = "https://github.com/rahulbansod519/k8s_prometheus_analyzer"
+Homepage      = "https://github.com/rahulbansod519/k8s_prometheus_analyzer"
+Repository    = "https://github.com/rahulbansod519/k8s_prometheus_analyzer"
+"Bug Tracker" = "https://github.com/rahulbansod519/k8s_prometheus_analyzer/issues"
+Changelog     = "https://github.com/rahulbansod519/k8s_prometheus_analyzer/blob/main/k8s-monitor/CHANGELOG.md"
 
 # ── Tool configuration ────────────────────────────────────────────────────────
 

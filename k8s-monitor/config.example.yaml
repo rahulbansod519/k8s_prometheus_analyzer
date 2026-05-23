@@ -26,6 +26,7 @@ retries: 3                # Number of retries on transient failures (500/502/503
 
 # ── Output ───────────────────────────────────────────────────────────────────
 output: "optimization_suggestions.json"
+html_output: "optimization_report.html"
 
 # ── Logging ──────────────────────────────────────────────────────────────────
 log_level: "INFO"         # DEBUG | INFO | WARNING | ERROR
@@ -41,3 +42,44 @@ thresholds:
   mem_overcommit_ratio: 3.0  # request/usage ratio above which over-provisioning is flagged
   replica_cpu_low: 0.05   # CPU threshold for "consider reducing replicas" suggestion
   replica_mem_low_mb: 20.0   # Memory threshold for "consider reducing replicas" suggestion
+
+# ── Alerting ─────────────────────────────────────────────────────────────────
+# Alerts fire AFTER analysis, when at least one recommendation matches
+# on_severities.  Both channels are independent — either, both, or neither
+# can be active at the same time.
+#
+# Env-var equivalents (useful in CI / Kubernetes Secrets):
+#   K8S_ANALYZER_ALERTS_ENABLED=true
+#   K8S_ANALYZER_ALERTS_SLACK_WEBHOOK_URL=https://hooks.slack.com/...
+#   K8S_ANALYZER_ALERTS_WEBHOOK_URL=https://your-endpoint/alerts
+#
+# CLI equivalents (quickest for one-off runs):
+#   --alert-slack-url URL
+#   --alert-webhook-url URL
+#   --alert-on critical --alert-on warning
+alerts:
+  enabled: false
+
+  # Severity levels that trigger an alert.  Any subset of: critical warning info
+  on_severities:
+    - critical
+    - warning
+
+  # ── Slack (Incoming Webhooks) ─────────────────────────────────────────────
+  slack:
+    enabled: false
+    webhook_url: ""         # https://hooks.slack.com/services/T.../B.../...
+    channel: ""             # optional — overrides the webhook's default channel
+    username: "k8s-analyzer"
+    icon_emoji: ":kubernetes:"
+
+  # ── Generic HTTP webhook ──────────────────────────────────────────────────
+  # Compatible with PagerDuty, Microsoft Teams, Opsgenie, or any custom endpoint.
+  webhook:
+    enabled: false
+    url: ""                 # https://your-endpoint.example.com/alerts
+    method: "POST"          # GET | POST
+    timeout: 10             # seconds
+    headers: {}             # custom headers, e.g. Authorization: "Bearer token"
+    #   Authorization: "Bearer my-api-key"
+    #   X-Source: "k8s-analyzer"

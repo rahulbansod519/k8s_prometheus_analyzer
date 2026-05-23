@@ -1,0 +1,111 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "k8s-prometheus-analyzer.fullname" . }}
+  labels:
+    {{- include "k8s-prometheus-analyzer.labels" . | nindent 4 }}
+spec:
+  schedule: {{ .Values.schedule | quote }}
+  concurrencyPolicy: {{ .Values.concurrencyPolicy }}
+  successfulJobsHistoryLimit: {{ .Values.successfulJobsHistoryLimit }}
+  failedJobsHistoryLimit: {{ .Values.failedJobsHistoryLimit }}
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          labels:
+            {{- include "k8s-prometheus-analyzer.selectorLabels" . | nindent 12 }}
+            {{- with .Values.podLabels }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          annotations:
+            {{- with .Values.podAnnotations }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+        spec:
+          restartPolicy: {{ .Values.restartPolicy }}
+          serviceAccountName: {{ include "k8s-prometheus-analyzer.serviceAccountName" . }}
+
+          {{- with .Values.imagePullSecrets }}
+          imagePullSecrets:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+
+          securityContext:
+            {{- toYaml .Values.podSecurityContext | nindent 12 }}
+
+          containers:
+            - name: analyzer
+              image: "{{ .Values.image.repository }}:{{ include "k8s-prometheus-analyzer.imageTag" . }}"
+              imagePullPolicy: {{ .Values.image.pullPolicy }}
+
+              securityContext:
+                {{- toYaml .Values.securityContext | nindent 16 }}
+
+              command:
+                - k8s-analyze
+                - --config
+                - /config/config.yaml
+
+              env:
+                {{- if .Values.prometheus.auth.tokenSecretRef }}
+                - name: K8S_ANALYZER_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ .Values.prometheus.auth.tokenSecretRef.name }}
+                      key: {{ .Values.prometheus.auth.tokenSecretRef.key }}
+                {{- end }}
+                {{- if .Values.alerts.slack.webhookUrlSecretRef }}
+                - name: K8S_ANALYZER_ALERTS_SLACK_WEBHOOK_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ .Values.alerts.slack.webhookUrlSecretRef.name }}
+                      key: {{ .Values.alerts.slack.webhookUrlSecretRef.key }}
+                {{- end }}
+                {{- with .Values.extraEnv }}
+                {{- toYaml . | nindent 16 }}
+                {{- end }}
+
+              {{- with .Values.extraEnvFrom }}
+              envFrom:
+                {{- toYaml . | nindent 16 }}
+              {{- end }}
+
+              volumeMounts:
+                - name: config
+                  mountPath: /config
+                  readOnly: true
+                {{- if .Values.output.pvc.name }}
+                - name: reports
+                  mountPath: {{ .Values.output.pvc.mountPath }}
+                {{- end }}
+                - name: tmp
+                  mountPath: /tmp
+
+              resources:
+                {{- toYaml .Values.resources | nindent 16 }}
+
+          volumes:
+            - name: config
+              configMap:
+                name: {{ include "k8s-prometheus-analyzer.fullname" . }}-config
+            {{- if .Values.output.pvc.name }}
+            - name: reports
+              persistentVolumeClaim:
+                claimName: {{ .Values.output.pvc.name }}
+            {{- end }}
+            - name: tmp
+              emptyDir: {}
+
+          {{- with .Values.nodeSelector }}
+          nodeSelector:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.affinity }}
+          affinity:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.tolerations }}
+          tolerations:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}

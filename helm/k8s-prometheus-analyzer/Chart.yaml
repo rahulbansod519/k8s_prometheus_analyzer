@@ -1,0 +1,25 @@
+apiVersion: v2
+name: k8s-prometheus-analyzer
+description: >
+  A Kubernetes CronJob that periodically analyses resource usage from Prometheus
+  and generates optimisation recommendations, HTML reports, and optional Slack/
+  webhook alerts.
+
+type: application
+version: 0.2.0
+appVersion: "0.2.0"
+
+keywords:
+  - kubernetes
+  - prometheus
+  - monitoring
+  - resource-optimization
+  - devops
+
+home: https://github.com/rahulbansod519/k8s_prometheus_analyzer
+sources:
+  - https://github.com/rahulbansod519/k8s_prometheus_analyzer
+
+maintainers:
+  - name: Rahul Bansod
+    email: rahulbansod519@gmail.com

@@ -35,3 +35,4 @@ COPY config.example.yaml ./config.example.yaml
 
 ENTRYPOINT ["k8s-analyze"]
 CMD ["--help"]
+

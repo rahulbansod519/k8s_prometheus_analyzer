@@ -1,0 +1,61 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "k8s-prometheus-analyzer.fullname" . }}-config
+  labels:
+    {{- include "k8s-prometheus-analyzer.labels" . | nindent 4 }}
+data:
+  config.yaml: |
+    prometheus_url: {{ .Values.prometheus.url | quote }}
+    auth_type: {{ .Values.prometheus.auth.type | quote }}
+    {{- if .Values.prometheus.auth.token }}
+    token: {{ .Values.prometheus.auth.token | quote }}
+    {{- end }}
+    {{- if .Values.prometheus.auth.username }}
+    username: {{ .Values.prometheus.auth.username | quote }}
+    {{- end }}
+    verify_ssl: {{ .Values.prometheus.verifySsl }}
+    {{- if .Values.prometheus.caCert }}
+    ca_cert: {{ .Values.prometheus.caCert | quote }}
+    {{- end }}
+    timeout: {{ .Values.prometheus.timeout }}
+    retries: {{ .Values.prometheus.retries }}
+    log_level: {{ .Values.logging.level | quote }}
+    log_format: {{ .Values.logging.format | quote }}
+    output: {{ .Values.output.jsonFile | quote }}
+    html_output: {{ .Values.output.htmlFile | quote }}
+
+    thresholds:
+      cpu_low: {{ .Values.thresholds.cpuLow }}
+      mem_low_mb: {{ .Values.thresholds.memLowMb }}
+      cpu_high_pct: {{ .Values.thresholds.cpuHighPct }}
+      mem_high_mb: {{ .Values.thresholds.memHighMb }}
+      mem_overcommit_ratio: {{ .Values.thresholds.memOvercommitRatio }}
+      replica_cpu_low: {{ .Values.thresholds.replicaCpuLow }}
+      replica_mem_low_mb: {{ .Values.thresholds.replicaMemLowMb }}
+
+    alerts:
+      enabled: {{ .Values.alerts.enabled }}
+      on_severities:
+        {{- range .Values.alerts.onSeverities }}
+        - {{ . }}
+        {{- end }}
+      slack:
+        enabled: {{ .Values.alerts.slack.enabled }}
+        {{- if .Values.alerts.slack.webhookUrl }}
+        webhook_url: {{ .Values.alerts.slack.webhookUrl | quote }}
+        {{- end }}
+        channel: {{ .Values.alerts.slack.channel | quote }}
+        username: {{ .Values.alerts.slack.username | quote }}
+        icon_emoji: {{ .Values.alerts.slack.iconEmoji | quote }}
+      webhook:
+        enabled: {{ .Values.alerts.webhook.enabled }}
+        {{- if .Values.alerts.webhook.url }}
+        url: {{ .Values.alerts.webhook.url | quote }}
+        {{- end }}
+        method: {{ .Values.alerts.webhook.method | quote }}
+        timeout: {{ .Values.alerts.webhook.timeout }}
+        {{- if .Values.alerts.webhook.headers }}
+        headers:
+          {{- toYaml .Values.alerts.webhook.headers | nindent 10 }}
+        {{- end }}

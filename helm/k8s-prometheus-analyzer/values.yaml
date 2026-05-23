@@ -1,0 +1,144 @@
+# ── Image ─────────────────────────────────────────────────────────────────────
+image:
+  repository: ghcr.io/rahulbansod519/k8s-prometheus-analyzer
+  pullPolicy: IfNotPresent
+  # Overrides the image tag. Defaults to the chart appVersion.
+  tag: ""
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+# ── Prometheus connection ──────────────────────────────────────────────────────
+prometheus:
+  # URL of the Prometheus server (required)
+  url: "http://prometheus-server.monitoring.svc.cluster.local:9090"
+
+  # Authentication — choose one of: none | bearer | basic
+  auth:
+    type: "none"
+
+    # Bearer token auth (set type: bearer)
+    token: ""
+    # Reference an existing Secret instead of an inline value:
+    # tokenSecretRef:
+    #   name: my-secret
+    #   key: token
+
+    # Basic auth (set type: basic)
+    username: ""
+    password: ""
+
+  # TLS
+  verifySsl: true
+  caCert: ""
+
+  # HTTP client
+  timeout: 10
+  retries: 3
+
+# ── Analysis thresholds ────────────────────────────────────────────────────────
+thresholds:
+  cpuLow: 0.1
+  memLowMb: 50.0
+  cpuHighPct: 80.0
+  memHighMb: 500.0
+  memOvercommitRatio: 3.0
+  replicaCpuLow: 0.05
+  replicaMemLowMb: 20.0
+
+# ── Output ────────────────────────────────────────────────────────────────────
+output:
+  # PersistentVolumeClaim to write reports into.
+  # Leave name empty to use an emptyDir (reports discarded after pod exits).
+  pvc:
+    name: ""
+    mountPath: /reports
+  jsonFile: /reports/optimization_suggestions.json
+  htmlFile: /reports/optimization_report.html
+
+# ── Alerting ──────────────────────────────────────────────────────────────────
+alerts:
+  enabled: false
+  onSeverities:
+    - critical
+    - warning
+
+  slack:
+    enabled: false
+    # webhookUrl: "https://hooks.slack.com/services/..."
+    webhookUrl: ""
+    # Reference an existing Secret instead:
+    # webhookUrlSecretRef:
+    #   name: k8s-analyzer-secrets
+    #   key: slack-webhook-url
+    channel: ""
+    username: "k8s-analyzer"
+    iconEmoji: ":kubernetes:"
+
+  webhook:
+    enabled: false
+    url: ""
+    method: POST
+    timeout: 10
+    headers: {}
+
+# ── CronJob schedule ──────────────────────────────────────────────────────────
+schedule: "0 */6 * * *"     # every 6 hours
+successfulJobsHistoryLimit: 3
+failedJobsHistoryLimit: 1
+concurrencyPolicy: Forbid
+restartPolicy: OnFailure
+
+# ── Logging ───────────────────────────────────────────────────────────────────
+logging:
+  level: INFO     # DEBUG | INFO | WARNING | ERROR
+  format: json    # text | json  (json recommended in-cluster)
+
+# ── Service account ───────────────────────────────────────────────────────────
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+# ── RBAC ──────────────────────────────────────────────────────────────────────
+# The analyzer only reads from Prometheus — it needs no K8s API access.
+# Set to false if you handle RBAC manually.
+rbac:
+  create: true
+
+# ── Pod settings ──────────────────────────────────────────────────────────────
+podAnnotations: {}
+podLabels: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  fsGroup: 1000
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 200m
+    memory: 256Mi
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+# ── Extra environment variables ───────────────────────────────────────────────
+extraEnv: []
+# - name: K8S_ANALYZER_LOG_LEVEL
+#   value: DEBUG
+
+extraEnvFrom: []
+# - secretRef:
+#     name: k8s-analyzer-secrets

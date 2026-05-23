@@ -6,12 +6,16 @@ class K8sAnalyzerError(Exception):
 
 
 class PrometheusConnectionError(K8sAnalyzerError):
-    """Raised when Prometheus is not reachable or returns an unexpected status."""
+    """Raised when Prometheus cannot be reached or returns a non-2xx status."""
 
 
 class PrometheusQueryError(K8sAnalyzerError):
-    """Raised when a PromQL query fails or returns malformed data."""
+    """Raised when a PromQL query fails or returns an unexpected payload."""
 
 
 class ConfigError(K8sAnalyzerError):
-    """Raised when the configuration is invalid or cannot be loaded."""
+    """Raised when configuration is invalid or a required file is missing."""
+
+
+class AlertDeliveryError(K8sAnalyzerError):
+    """Raised when an alert cannot be delivered to a notification channel."""
