@@ -12,13 +12,15 @@ from __future__ import annotations
 
 import argparse
 import logging
+import signal
 import sys
-from typing import NoReturn
+import threading
+from typing import Any, NoReturn
 
 from .alerting.dispatcher import dispatch
-from .analyzer import SEVERITY_CRITICAL, analyze
-from .config import load_config
-from .exceptions import ConfigError, K8sAnalyzerError, LicenseLimitExceededError
+from .analyzer import SEVERITY_CRITICAL, Recommendation, analyze
+from .config import Config, load_config
+from .exceptions import ConfigError, K8sAnalyzerError, LicenseError, LicenseLimitExceededError
 from .fetcher import PrometheusClient
 from .license import verify_license
 from .reporter import html_report, json_report, table
@@ -188,6 +190,20 @@ exit codes:
         help="Path to the enterprise license file (license.jwt)",
     )
 
+    parser.add_argument(
+        "--daemon",
+        action="store_true",
+        default=None,
+        help="Run the analyzer continuously in background daemon mode",
+    )
+
+    parser.add_argument(
+        "--daemon-interval",
+        type=int,
+        metavar="SECONDS",
+        help="Interval in seconds to sleep between runs (default: 300)",
+    )
+
     alert = parser.add_argument_group("alerting")
     alert.add_argument(
         "--alert-slack-url",
@@ -211,6 +227,34 @@ exit codes:
         ),
     )
 
+    gitops = parser.add_argument_group("gitops")
+    gitops.add_argument(
+        "--gitops",
+        action="store_true",
+        default=None,
+        help="Enable auto-generation of GitOps sizing Pull Requests on GitHub",
+    )
+    gitops.add_argument(
+        "--github-token",
+        metavar="TOKEN",
+        help="GitHub Personal Access Token for creating branches and PRs",
+    )
+    gitops.add_argument(
+        "--github-repo",
+        metavar="OWNER/REPO",
+        help="Target GitHub repository (e.g. 'rahulbansod519/k8s-gitops-config')",
+    )
+    gitops.add_argument(
+        "--github-branch",
+        metavar="BRANCH",
+        help="Base branch for the Pull Request (default: main)",
+    )
+    gitops.add_argument(
+        "--manifest-path",
+        metavar="PATH",
+        help="Path to the Kubernetes manifest file inside the repository to modify",
+    )
+
     return parser
 
 
@@ -226,6 +270,120 @@ def get_node_count(client: PrometheusClient) -> int:
     except Exception as exc:
         logger.warning("Failed to query node count from Prometheus: %s. Defaulting to 1.", exc)
     return 1
+
+
+def _run_analysis_cycle(cfg: Config, client: PrometheusClient) -> list[Recommendation] | None:
+    """Run a single analysis, reporting, and alerting cycle.
+
+    Returns:
+        list[Recommendation]: The list of recommendations generated.
+        None: If a transient error occurred.
+    """
+    try:
+        client.check_availability()
+
+        # ── License checks ──
+        node_count = get_node_count(client)
+        logger.info("Detected %d active node(s) in the cluster", node_count)
+
+        if cfg.license_file:
+            logger.info("Loading license file from %s", cfg.license_file)
+            try:
+                with open(cfg.license_file) as f:
+                    license_token = f.read().strip()
+            except FileNotFoundError as exc:
+                raise ConfigError(f"License file not found: {cfg.license_file}") from exc
+
+            payload = verify_license(license_token)
+            license_limit = payload.get("limits", {}).get("nodes", 0)
+            logger.info(
+                "License verified successfully for %s (Limit: %d nodes)",
+                payload.get("sub", "Unknown Tenant"),
+                license_limit,
+            )
+            if node_count > license_limit:
+                raise LicenseLimitExceededError(
+                    f"Active node count ({node_count}) exceeds your licensed limit of {license_limit} nodes."
+                )
+        else:
+            logger.warning("No license file specified. Running in Community Edition mode.")
+            COMMUNITY_NODE_LIMIT = 15
+            if node_count > COMMUNITY_NODE_LIMIT:
+                raise LicenseLimitExceededError(
+                    f"Free Community Edition is limited to {COMMUNITY_NODE_LIMIT} nodes. "
+                    f"Your cluster has {node_count} nodes. Please purchase an Enterprise license."
+                )
+
+        logger.info("Fetching metrics from Prometheus …")
+        metrics = client.query_all()
+    except (LicenseError, ConfigError):
+        raise
+    except K8sAnalyzerError as exc:
+        logger.error("Transient error during metrics fetch: %s", exc)
+        return None
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Unexpected error during metrics fetch: %s", exc)
+        return None
+
+    # ── Resolve workloads & aggregate metrics ──
+    pod_owner_data = metrics.pop("pod_owner", [])
+    rs_owner_data = metrics.pop("rs_owner", [])
+
+    if pod_owner_data:
+        logger.info(
+            "Resolving workload ownership for %d pod entries", len(pod_owner_data)
+        )
+    else:
+        logger.warning(
+            "No kube_pod_owner data found — falling back to pod-level grouping. "
+            "Ensure kube-state-metrics is deployed and scraped by Prometheus."
+        )
+
+    workload_map = resolve_workload_map(pod_owner_data, rs_owner_data)
+    workload_metrics = aggregate_metrics(metrics, workload_map)
+
+    logger.info(
+        "Aggregated %d pods into %d workload(s)", len(pod_owner_data), len(workload_metrics)
+    )
+
+    # ── Analyse ──
+    recommendations = analyze(workload_metrics, cfg.thresholds)
+    logger.info(
+        "Analysis complete — %d recommendation(s) generated", len(recommendations)
+    )
+
+    # ── Report ──
+    table.print_table(recommendations)
+
+    try:
+        json_report.export_json(recommendations, cfg.output)
+    except OSError as exc:
+        logger.error("Failed to write JSON report: %s", exc)
+
+    try:
+        html_report.export_html(recommendations, cfg.html_output, cfg.prometheus_url)
+    except OSError as exc:
+        logger.error("Failed to write HTML report: %s", exc)
+
+    # ── Alert ──
+    try:
+        dispatch(recommendations, cfg.alerts, cfg.prometheus_url)
+    except Exception as exc:  # noqa: BLE001
+        logger.error("Failed to dispatch alerts: %s", exc)
+
+    # ── GitOps auto-PR trigger ──
+    if cfg.gitops.enabled and recommendations:
+        logger.info("GitOps auto-PR generation is enabled. Triggering Pull Request...")
+        try:
+            from .gitops import open_github_pr
+            pr_url = open_github_pr(cfg, recommendations)
+            logger.info("Successfully created GitOps Pull Request: %s", pr_url)
+        except K8sAnalyzerError as exc:
+            logger.error("GitOps PR generation failed: %s", exc)
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("Unexpected error in GitOps trigger: %s", exc)
+
+    return recommendations
 
 
 # ---------------------------------------------------------------------------
@@ -274,6 +432,22 @@ def main() -> NoReturn:
         cfg.log_format = args.log_format
     if args.license_file is not None:
         cfg.license_file = args.license_file
+    if args.daemon is not None:
+        cfg.daemon = args.daemon
+    if args.daemon_interval is not None:
+        cfg.daemon_interval = args.daemon_interval
+
+    # ── GitOps CLI overrides ──────────────────────────────────────────────
+    if args.gitops:
+        cfg.gitops.enabled = True
+    if args.github_token is not None:
+        cfg.gitops.github_token = args.github_token
+    if args.github_repo is not None:
+        cfg.gitops.github_repo = args.github_repo
+    if args.github_branch is not None:
+        cfg.gitops.github_branch = args.github_branch
+    if args.manifest_path is not None:
+        cfg.gitops.manifest_path = args.manifest_path
 
     # ── Alert CLI overrides ───────────────────────────────────────────────
     if args.alert_slack_url:
@@ -298,97 +472,89 @@ def main() -> NoReturn:
     # ── 4. Connect & fetch ────────────────────────────────────────────────
     try:
         client = PrometheusClient(cfg)
-        client.check_availability()
+    except K8sAnalyzerError as exc:
+        logger.error("Fatal initialization error: %s", exc)
+        sys.exit(EXIT_ERROR)
 
-        # ── License checks ──
-        node_count = get_node_count(client)
-        logger.info("Detected %d active node(s) in the cluster", node_count)
+    # Setup signal handlers for graceful daemon shutdown
+    shutdown_event = threading.Event()
 
-        if cfg.license_file:
-            logger.info("Loading license file from %s", cfg.license_file)
-            try:
+    def handle_shutdown(signum: int, frame: Any) -> None:
+        logger.info("Received signal %d. Shutting down gracefully...", signum)
+        shutdown_event.set()
+
+    # signal.signal can only be registered on the main thread
+    try:
+        signal.signal(signal.SIGINT, handle_shutdown)
+        signal.signal(signal.SIGTERM, handle_shutdown)
+    except ValueError as exc:
+        logger.warning("Could not register signal handlers: %s", exc)
+
+    if cfg.daemon:
+        logger.info(
+            "Running in daemon mode. Scan interval: %d seconds",
+            cfg.daemon_interval,
+        )
+        # Verify the license once before entering the loop so fatal license issues crash immediately
+        try:
+            client.check_availability()
+            node_count = get_node_count(client)
+            if cfg.license_file:
                 with open(cfg.license_file) as f:
                     license_token = f.read().strip()
-            except FileNotFoundError as exc:
-                raise ConfigError(f"License file not found: {cfg.license_file}") from exc
+                payload = verify_license(license_token)
+                license_limit = payload.get("limits", {}).get("nodes", 0)
+                if node_count > license_limit:
+                    raise LicenseLimitExceededError(
+                        f"Active node count ({node_count}) exceeds your licensed limit of {license_limit} nodes."
+                    )
+            else:
+                COMMUNITY_NODE_LIMIT = 15
+                if node_count > COMMUNITY_NODE_LIMIT:
+                    raise LicenseLimitExceededError(
+                        f"Free Community Edition is limited to {COMMUNITY_NODE_LIMIT} nodes. "
+                        f"Your cluster has {node_count} nodes. Please purchase an Enterprise license."
+                    )
+        except (LicenseError, ConfigError) as exc:
+            logger.error("Fatal licensing check failed: %s", exc)
+            sys.exit(EXIT_ERROR)
+        except K8sAnalyzerError as exc:
+            logger.warning("Initial connection check encountered a transient error: %s. Continuing in loop.", exc)
 
-            payload = verify_license(license_token)
-            license_limit = payload.get("limits", {}).get("nodes", 0)
-            logger.info(
-                "License verified successfully for %s (Limit: %d nodes)",
-                payload.get("sub", "Unknown Tenant"),
-                license_limit,
-            )
-            if node_count > license_limit:
-                raise LicenseLimitExceededError(
-                    f"Active node count ({node_count}) exceeds your licensed limit of {license_limit} nodes."
-                )
-        else:
-            logger.warning("No license file specified. Running in Community Edition mode.")
-            COMMUNITY_NODE_LIMIT = 15
-            if node_count > COMMUNITY_NODE_LIMIT:
-                raise LicenseLimitExceededError(
-                    f"Free Community Edition is limited to {COMMUNITY_NODE_LIMIT} nodes. "
-                    f"Your cluster has {node_count} nodes. Please purchase an Enterprise license."
-                )
+        while not shutdown_event.is_set():
+            logger.info("Starting analysis cycle...")
+            try:
+                _run_analysis_cycle(cfg, client)
+            except (LicenseError, ConfigError) as exc:
+                logger.error("Fatal license/config error encountered: %s. Terminating daemon.", exc)
+                sys.exit(EXIT_ERROR)
+            except Exception as exc:  # noqa: BLE001
+                logger.exception("Unexpected error in daemon loop: %s", exc)
 
-        logger.info("Fetching metrics from Prometheus …")
-        metrics = client.query_all()
-    except K8sAnalyzerError as exc:
-        logger.error("Fatal: %s", exc)
-        sys.exit(EXIT_ERROR)
-    except Exception as exc:  # noqa: BLE001
-        logger.exception("Unexpected error: %s", exc)
-        sys.exit(EXIT_ERROR)
+            if shutdown_event.is_set():
+                break
 
-    # ── 5. Resolve workloads & aggregate metrics ──────────────────────────
-    pod_owner_data = metrics.pop("pod_owner", [])
-    rs_owner_data = metrics.pop("rs_owner", [])
+            logger.info("Cycle complete. Sleeping for %d seconds...", cfg.daemon_interval)
+            shutdown_event.wait(timeout=cfg.daemon_interval)
 
-    if pod_owner_data:
-        logger.info(
-            "Resolving workload ownership for %d pod entries", len(pod_owner_data)
-        )
-    else:
-        logger.warning(
-            "No kube_pod_owner data found — falling back to pod-level grouping. "
-            "Ensure kube-state-metrics is deployed and scraped by Prometheus."
-        )
-
-    workload_map = resolve_workload_map(pod_owner_data, rs_owner_data)
-    workload_metrics = aggregate_metrics(metrics, workload_map)
-
-    logger.info(
-        "Aggregated %d pods into %d workload(s)", len(pod_owner_data), len(workload_metrics)
-    )
-
-    # ── 6. Analyse ────────────────────────────────────────────────────────
-    recommendations = analyze(workload_metrics, cfg.thresholds)
-    logger.info(
-        "Analysis complete — %d recommendation(s) generated", len(recommendations)
-    )
-
-    # ── 7. Report ─────────────────────────────────────────────────────────
-    table.print_table(recommendations)
-
-    try:
-        json_report.export_json(recommendations, cfg.output)
-    except OSError as exc:
-        logger.error("Failed to write JSON report: %s", exc)
-        sys.exit(EXIT_ERROR)
-
-    try:
-        html_report.export_html(recommendations, cfg.html_output, cfg.prometheus_url)
-    except OSError as exc:
-        logger.error("Failed to write HTML report: %s", exc)
-        # Non-fatal: JSON was already written
-
-    # ── 8. Alert ──────────────────────────────────────────────────────────
-    dispatch(recommendations, cfg.alerts, cfg.prometheus_url)
-
-    # ── 9. Exit with meaningful code ──────────────────────────────────────
-    if not recommendations:
+        logger.info("Daemon shut down cleanly.")
         sys.exit(EXIT_OK)
+    else:
+        # Single execution mode
+        try:
+            recommendations = _run_analysis_cycle(cfg, client)
+            if recommendations is None:
+                # Transient fetch error occurred
+                sys.exit(EXIT_ERROR)
 
-    has_critical = any(r.severity == SEVERITY_CRITICAL for r in recommendations)
-    sys.exit(EXIT_CRITICAL if has_critical else EXIT_WARNINGS)
+            if not recommendations:
+                sys.exit(EXIT_OK)
+
+            has_critical = any(r.severity == SEVERITY_CRITICAL for r in recommendations)
+            sys.exit(EXIT_CRITICAL if has_critical else EXIT_WARNINGS)
+        except (LicenseError, ConfigError) as exc:
+            logger.error("Fatal: %s", exc)
+            sys.exit(EXIT_ERROR)
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("Unexpected fatal error: %s", exc)
+            sys.exit(EXIT_ERROR)

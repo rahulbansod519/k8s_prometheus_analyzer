@@ -325,3 +325,105 @@ def test_cli_enterprise_license_expired(mocker, tmp_path):
     )
     assert code == cli.EXIT_ERROR
 
+
+# ---------------------------------------------------------------------------
+# Daemon Mode Tests
+# ---------------------------------------------------------------------------
+
+
+def test_cli_parser_daemon_flags():
+    """Verify that --daemon and --daemon-interval flags are parsed correctly."""
+    parser = cli._build_parser()
+    args = parser.parse_args(["--daemon", "--daemon-interval", "45"])
+    assert args.daemon is True
+    assert args.daemon_interval == 45
+
+
+def test_cli_daemon_graceful_shutdown(mocker, tmp_path):
+    """Verify that setting the shutdown event terminates the daemon loop cleanly."""
+    _mock_client(mocker)
+    mocker.patch("k8s_prometheus_analyzer.cli.get_node_count", return_value=5)
+
+    # Mock _run_analysis_cycle to simulate a run and then set the shutdown event
+    cycle_count = 0
+
+    def mock_cycle(cfg, client):
+        nonlocal cycle_count
+        cycle_count += 1
+        return []
+
+    mocker.patch("k8s_prometheus_analyzer.cli._run_analysis_cycle", side_effect=mock_cycle)
+
+    # We patch Event.is_set so it returns False the first time (to run one loop),
+    # and then True to terminate immediately
+    is_set_mock = mocker.patch("threading.Event.is_set", side_effect=[False, True])
+
+    code = _run_cli(
+        "--prometheus-url", "http://prom:9090",
+        "--output", str(tmp_path / "out.json"),
+        "--daemon",
+        "--daemon-interval", "5",
+        "--log-level", "ERROR",
+    )
+
+    assert code == cli.EXIT_OK
+    assert cycle_count == 1
+    assert is_set_mock.call_count > 0
+
+
+def test_cli_daemon_handles_transient_error(mocker, tmp_path):
+    """Verify that transient query errors do not crash the daemon loop."""
+    _mock_client(mocker)
+    mocker.patch("k8s_prometheus_analyzer.cli.get_node_count", return_value=5)
+
+    from k8s_prometheus_analyzer.exceptions import PrometheusQueryError
+
+    cycle_count = 0
+
+    def mock_cycle(cfg, client):
+        nonlocal cycle_count
+        cycle_count += 1
+        if cycle_count == 1:
+            raise PrometheusQueryError("transient error")
+        return []
+
+    mocker.patch("k8s_prometheus_analyzer.cli._run_analysis_cycle", side_effect=mock_cycle)
+    is_set_mock = mocker.patch("threading.Event.is_set", side_effect=[False, False, False, False, True])
+
+    code = _run_cli(
+        "--prometheus-url", "http://prom:9090",
+        "--output", str(tmp_path / "out.json"),
+        "--daemon",
+        "--daemon-interval", "5",
+        "--log-level", "ERROR",
+    )
+
+    assert code == cli.EXIT_OK
+    assert cycle_count == 2
+    assert is_set_mock.call_count > 0
+
+
+def test_cli_daemon_fatal_license_error(mocker, tmp_path):
+    """Verify that a fatal licensing error during the cycle terminates the daemon loop with exit code 3."""
+    _mock_client(mocker)
+    mocker.patch("k8s_prometheus_analyzer.cli.get_node_count", return_value=5)
+
+    from k8s_prometheus_analyzer.exceptions import LicenseExpiredError
+
+    def mock_cycle(cfg, client):
+        raise LicenseExpiredError("License key has expired.")
+
+    mocker.patch("k8s_prometheus_analyzer.cli._run_analysis_cycle", side_effect=mock_cycle)
+    mocker.patch("threading.Event.is_set", side_effect=[False, True])
+
+    code = _run_cli(
+        "--prometheus-url", "http://prom:9090",
+        "--output", str(tmp_path / "out.json"),
+        "--daemon",
+        "--daemon-interval", "5",
+        "--log-level", "ERROR",
+    )
+
+    assert code == cli.EXIT_ERROR
+
+
