@@ -7,3 +7,4 @@ It tracks our architectural decisions, strategies, timelines, and day-by-day log
 ## 📖 Journal Index
 
 * **[Day 1: 2026-05-23](file:///Users/rahulbansod01/Projects/k8s_prometheus_analyzer/playbook/day_1_2026_05_23.md)**: Project Audit, SaaS vs. On-Prem Strategy, Licensing Decision, and Roadmap.
+* **[Day 2: 2026-05-24](file:///Users/rahulbansod01/Projects/k8s_prometheus_analyzer/playbook/day_2_2026_05_24.md)**: Agent / Daemon Mode implementation, SIGINT/SIGTERM handling, and transient error isolation.

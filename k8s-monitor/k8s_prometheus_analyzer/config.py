@@ -90,6 +90,17 @@ class AlertConfig:
     webhook: WebhookAlertConfig = field(default_factory=WebhookAlertConfig)
 
 
+@dataclass
+class GitOpsConfig:
+    """GitOps auto-PR configuration block."""
+
+    enabled: bool = False
+    github_token: str = ""
+    github_repo: str = ""        # e.g. "owner/repo"
+    github_branch: str = "main"  # base branch
+    manifest_path: str = ""      # path to the YAML file in the repo
+
+
 # ---------------------------------------------------------------------------
 # Main Config
 # ---------------------------------------------------------------------------
@@ -113,8 +124,11 @@ class Config:
     output: str = "optimization_suggestions.json"
     html_output: str = "optimization_report.html"
     license_file: str = ""
+    daemon: bool = False
+    daemon_interval: int = 300       # seconds
     thresholds: Thresholds = field(default_factory=Thresholds)
     alerts: AlertConfig = field(default_factory=AlertConfig)
+    gitops: GitOpsConfig = field(default_factory=GitOpsConfig)
 
 
 # ---------------------------------------------------------------------------
@@ -180,13 +194,24 @@ def _apply_alert_dict(alert: AlertConfig, data: dict[str, Any]) -> None:
         _apply_webhook_dict(alert.webhook, webhook_data)
 
 
+def _apply_gitops_dict(gitops: GitOpsConfig, data: dict[str, Any]) -> None:
+    for f in fields(gitops):
+        if f.name not in data:
+            continue
+        try:
+            setattr(gitops, f.name, type(getattr(gitops, f.name))(data[f.name]))
+        except (ValueError, TypeError) as exc:
+            logger.warning("GitOps config '%s' invalid value %r: %s", f.name, data[f.name], exc)
+
+
 def _apply_dict(cfg: Config, data: dict[str, Any]) -> None:
     """Overwrite *cfg* fields that appear in *data* (in-place)."""
     thresholds_data: dict[str, Any] = data.pop("thresholds", {})
     alerts_data: dict[str, Any] = data.pop("alerts", {})
+    gitops_data: dict[str, Any] = data.pop("gitops", {})
 
     for f in fields(cfg):
-        if f.name in ("thresholds", "alerts") or f.name not in data:
+        if f.name in ("thresholds", "alerts", "gitops") or f.name not in data:
             continue
         val = data[f.name]
         current = getattr(cfg, f.name)
@@ -212,12 +237,16 @@ def _apply_dict(cfg: Config, data: dict[str, Any]) -> None:
     if alerts_data:
         _apply_alert_dict(cfg.alerts, alerts_data)
 
+    if gitops_data:
+        _apply_gitops_dict(cfg.gitops, gitops_data)
+
 
 def _apply_env(cfg: Config) -> None:
     """Overwrite *cfg* fields from environment variables (K8S_ANALYZER_*) in-place."""
     _ALERT_PFX = _ENV_PREFIX + "ALERTS_"
     _SLACK_PFX = _ALERT_PFX + "SLACK_"
     _WEBHOOK_PFX = _ALERT_PFX + "WEBHOOK_"
+    _GITOPS_PFX = _ENV_PREFIX + "GITOPS_"
 
     for key, raw in os.environ.items():
         if not key.startswith(_ENV_PREFIX):
@@ -243,6 +272,18 @@ def _apply_env(cfg: Config) -> None:
                     current = getattr(cfg.alerts.webhook, f.name)
                     try:
                         setattr(cfg.alerts.webhook, f.name, _coerce(current, raw))
+                    except (ValueError, TypeError):
+                        logger.warning("Ignoring invalid env var %s=%r", key, raw)
+            continue
+
+        # ── Nested: GitOps config ─────────────────────────────────────────
+        if key.startswith(_GITOPS_PFX):
+            field_name = key[len(_GITOPS_PFX):].lower()
+            for f in fields(cfg.gitops):
+                if f.name == field_name:
+                    current = getattr(cfg.gitops, f.name)
+                    try:
+                        setattr(cfg.gitops, f.name, _coerce(current, raw))
                     except (ValueError, TypeError):
                         logger.warning("Ignoring invalid env var %s=%r", key, raw)
             continue

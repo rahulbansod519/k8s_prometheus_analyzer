@@ -5,6 +5,8 @@ from __future__ import annotations
 import pytest
 import requests
 
+from typing import Any
+
 from k8s_prometheus_analyzer.alerting.dispatcher import dispatch
 from k8s_prometheus_analyzer.alerting.slack import SlackChannel
 from k8s_prometheus_analyzer.alerting.webhook import WebhookChannel
@@ -20,8 +22,8 @@ from .conftest import make_workload_metrics
 PROM_URL = "http://prometheus:9090"
 
 
-def _make_slack_cfg(**kwargs) -> SlackAlertConfig:
-    defaults = {
+def _make_slack_cfg(**kwargs: Any) -> SlackAlertConfig:
+    defaults: dict[str, Any] = {
         "enabled": True,
         "webhook_url": "https://hooks.slack.com/test/token",
         "username": "k8s-analyzer",
@@ -31,8 +33,8 @@ def _make_slack_cfg(**kwargs) -> SlackAlertConfig:
     return SlackAlertConfig(**defaults)
 
 
-def _make_webhook_cfg(**kwargs) -> WebhookAlertConfig:
-    defaults = {
+def _make_webhook_cfg(**kwargs: Any) -> WebhookAlertConfig:
+    defaults: dict[str, Any] = {
         "enabled": True,
         "url": "https://example.com/alerts",
         "method": "POST",
