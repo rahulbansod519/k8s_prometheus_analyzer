@@ -83,6 +83,10 @@ alerts:
     timeout: 10
     headers: {}
 
+# ── Daemon configuration ──────────────────────────────────────────────────────
+daemon: false
+daemonInterval: 300
+
 # ── CronJob schedule ──────────────────────────────────────────────────────────
 schedule: "0 */6 * * *"     # every 6 hours
 successfulJobsHistoryLimit: 3
