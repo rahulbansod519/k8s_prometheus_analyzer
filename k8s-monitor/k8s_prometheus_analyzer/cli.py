@@ -400,6 +400,18 @@ def _run_analysis_cycle(cfg: Config, client: PrometheusClient) -> list[Recommend
 
 
 def main() -> NoReturn:
+    # Force UTF-8 encoding on stdout/stderr to prevent UnicodeEncodeError on Windows terminals
+    if hasattr(sys.stdout, "reconfigure"):
+        try:
+            sys.stdout.reconfigure(encoding="utf-8")
+        except Exception:
+            pass
+    if hasattr(sys.stderr, "reconfigure"):
+        try:
+            sys.stderr.reconfigure(encoding="utf-8")
+        except Exception:
+            pass
+
     parser = _build_parser()
     args = parser.parse_args()
 
