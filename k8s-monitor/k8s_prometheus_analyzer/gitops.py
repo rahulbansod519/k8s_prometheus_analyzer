@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import base64
+import io
 import logging
 import time
 from typing import TYPE_CHECKING
 
 import requests
-import yaml
+from ruamel.yaml import YAML
 
 from .exceptions import K8sAnalyzerError
 
@@ -26,8 +27,10 @@ def update_yaml_manifest(original_content: str, recommendations: list[Recommenda
     - CPU Request: Max of (average usage * 1.25, 0.01 cores) (25% buffer)
     - Memory Request: Max of (average usage * 1.20, 10.0 MB) (20% buffer)
     """
+    ryaml = YAML()
+    ryaml.preserve_quotes = True
     try:
-        docs = list(yaml.safe_load_all(original_content))
+        docs = list(ryaml.load_all(original_content))
     except Exception as exc:
         raise ValueError(f"Failed to parse YAML manifest: {exc}") from exc
 
@@ -104,8 +107,10 @@ def update_yaml_manifest(original_content: str, recommendations: list[Recommenda
     if not updated_any:
         return original_content
 
-    # Dump all documents back to a single YAML stream
-    return yaml.safe_dump_all(docs)
+    # Dump all documents back to a single YAML stream preserving formatting
+    buf = io.StringIO()
+    ryaml.dump_all(docs, buf)
+    return buf.getvalue()
 
 
 def open_github_pr(cfg: Config, recommendations: list[Recommendation]) -> str:

@@ -1,13 +1,9 @@
-# Tasks: Prometheus Exporter & Grafana Dashboard Integration
+# Tasks: Production-grade YAML Parsing with Comment Preservation
 
-- [x] Add `exporter_port` configurations to `config.py`
-- [x] Add baseline request fields to `Recommendation` class in `analyzer.py`
-- [x] Implement `exporter.py` with standard HTTP server and metrics formatting
-- [x] Integrate background exporter thread startup/teardown in `cli.py`
-- [x] Write unit tests in `tests/test_exporter.py`
-- [x] Run `pytest` and verify code coverage > 80%
-- [x] Create Grafana dashboard JSON config in `grafana/dashboard.json`
-- [x] Embed dashboard JSON in `helm/k8s-prometheus-analyzer/templates/grafana-dashboard.yaml`
-- [x] Expose configuration options in `helm/k8s-prometheus-analyzer/values.yaml`
-- [x] Run static code quality checks (`ruff`, `mypy`)
+- [x] Add `ruamel.yaml` and typing dependencies to `pyproject.toml`
+- [x] Install dependencies in local virtualenv
+- [x] Modify `gitops.py` to use `ruamel.yaml` round-trip parser
+- [x] Add unit test verifying comment preservation in `tests/test_gitops.py`
+- [x] Run `pytest` test suite and verify >80% coverage
+- [x] Run static code analysis (`ruff`, `mypy`)
 - [x] Update `walkthrough.md` and playbooks

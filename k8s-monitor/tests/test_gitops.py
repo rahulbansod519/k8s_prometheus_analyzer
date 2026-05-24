@@ -239,3 +239,38 @@ def test_open_github_pr_no_updates(requests_mock):
 
     with pytest.raises(K8sAnalyzerError, match="No matching workloads found in the target manifest"):
         open_github_pr(cfg, recs)
+
+
+def test_update_yaml_manifest_preserves_comments(mock_recommendations):
+    """Verify that update_yaml_manifest preserves comments in the YAML file."""
+    manifest_with_comments = """# Global config header comment
+apiVersion: apps/v1
+kind: Deployment # Deploy kind
+metadata:
+  name: billing-service
+  namespace: finance # Target finance namespace
+spec:
+  replicas: 2
+  template:
+    spec:
+      containers:
+        - name: web # Primary container
+          resources:
+            requests:
+              cpu: 500m # Baseline CPU
+              memory: 256Mi # Baseline Memory
+"""
+    updated = update_yaml_manifest(manifest_with_comments, mock_recommendations)
+
+    # Assert formatting/comments are preserved
+    assert "# Global config header comment" in updated
+    assert "# Deploy kind" in updated
+    assert "# Target finance namespace" in updated
+    assert "# Primary container" in updated
+    assert "# Baseline CPU" in updated
+    assert "# Baseline Memory" in updated
+
+    # Assert values are updated correctly
+    assert "cpu: 125m" in updated
+    assert "memory: 120Mi" in updated
+
