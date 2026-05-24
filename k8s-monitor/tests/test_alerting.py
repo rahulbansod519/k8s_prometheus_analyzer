@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 import requests
-
-from typing import Any
 
 from k8s_prometheus_analyzer.alerting.dispatcher import dispatch
 from k8s_prometheus_analyzer.alerting.slack import SlackChannel
