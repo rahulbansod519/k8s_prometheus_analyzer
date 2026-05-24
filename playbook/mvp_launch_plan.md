@@ -61,13 +61,18 @@ Once happy, the team deploys the daemon to continuously expose recommendations a
 helm repo add k8s-prometheus-analyzer https://charts.yourdomain.com
 helm install k8s-analyzer k8s-prometheus-analyzer/k8s-prometheus-analyzer \
   --set prometheus.url="http://kube-stack-kube-prometheus-prometheus.default.svc.cluster.local:9090" \
-  --set serviceMonitor.enabled=true
+  --set exporter.serviceMonitor.enabled=true \
+  --set grafana.dashboard.enabled=true
 ```
 
-### Step 3: Visualize in Grafana
-1. Copy the contents of `grafana/dashboard.json`.
-2. Go to Grafana ➔ **Dashboards** ➔ **Import**.
-3. Paste the JSON and select your Prometheus data source.
+### Step 3: Visualize in Grafana (Automatic Import)
+By deploying the Helm chart with `--set grafana.dashboard.enabled=true`, the chart automatically creates a ConfigMap labeled `grafana_dashboard: "1"`. 
+
+If you are using a standard Prometheus/Grafana stack (like `kube-prometheus-stack`), the Grafana dashboard sidecar will automatically discover this ConfigMap and import the **Kubernetes Resource Optimization Recommendations** dashboard without any manual copy-pasting.
+
+*Alternative (Manual Import):*
+1. Copy the contents of the template [dashboard.json](file:///D:/projects/k8s_prometheus_analyzer/grafana/dashboard.json).
+2. Go to Grafana ➔ **Dashboards** ➔ **Import**, paste the JSON, and select your Prometheus data source.
 
 ---
 
