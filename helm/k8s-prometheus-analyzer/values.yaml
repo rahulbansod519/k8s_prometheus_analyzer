@@ -83,6 +83,10 @@ alerts:
     timeout: 10
     headers: {}
 
+# ── Daemon configuration ──────────────────────────────────────────────────────
+daemon: false
+daemonInterval: 300
+
 # ── CronJob schedule ──────────────────────────────────────────────────────────
 schedule: "0 */6 * * *"     # every 6 hours
 successfulJobsHistoryLimit: 3
@@ -142,3 +146,18 @@ extraEnv: []
 extraEnvFrom: []
 # - secretRef:
 #     name: k8s-analyzer-secrets
+
+# ── Exporter (Prometheus metrics) ─────────────────────────────────────────────
+exporter:
+  port: 8000
+  service:
+    enabled: true
+    type: ClusterIP
+  serviceMonitor:
+    enabled: false
+
+# ── Grafana Dashboard ─────────────────────────────────────────────────────────
+grafana:
+  dashboard:
+    enabled: false
+    namespace: ""

@@ -12,6 +12,17 @@ import pytest
 from k8s_prometheus_analyzer import cli
 from k8s_prometheus_analyzer.exceptions import PrometheusConnectionError
 
+
+@pytest.fixture(autouse=True)
+def mock_exporter(mocker):
+    """Automatically mock the Prometheus exporter in CLI tests to avoid port conflicts and thread issues."""
+    mock_server = mocker.MagicMock()
+    mock_thread = mocker.MagicMock()
+    mocker.patch("k8s_prometheus_analyzer.cli.start_exporter", return_value=(mock_server, mock_thread))
+    mocker.patch("k8s_prometheus_analyzer.cli.registry")
+    return mock_server, mock_thread
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

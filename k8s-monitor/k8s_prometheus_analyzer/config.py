@@ -126,6 +126,7 @@ class Config:
     license_file: str = ""
     daemon: bool = False
     daemon_interval: int = 300       # seconds
+    exporter_port: int = 8000
     thresholds: Thresholds = field(default_factory=Thresholds)
     alerts: AlertConfig = field(default_factory=AlertConfig)
     gitops: GitOpsConfig = field(default_factory=GitOpsConfig)
@@ -305,7 +306,7 @@ def _apply_env(cfg: Config) -> None:
         # ── Top-level config fields ───────────────────────────────────────
         field_name = key[len(_ENV_PREFIX):].lower()
         for f in fields(cfg):
-            if f.name in ("thresholds", "alerts") or f.name != field_name:
+            if f.name in ("thresholds", "alerts", "gitops") or f.name != field_name:
                 continue
             current = getattr(cfg, f.name)
             try:

@@ -1,0 +1,17 @@
+{{- if and .Values.daemon .Values.exporter.service.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "k8s-prometheus-analyzer.fullname" . }}-metrics
+  labels:
+    {{- include "k8s-prometheus-analyzer.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.exporter.service.type }}
+  ports:
+    - name: http-metrics
+      port: {{ .Values.exporter.port }}
+      targetPort: http-metrics
+      protocol: TCP
+  selector:
+    {{- include "k8s-prometheus-analyzer.selectorLabels" . | nindent 4 }}
+{{- end }}

@@ -24,6 +24,9 @@ data:
     log_format: {{ .Values.logging.format | quote }}
     output: {{ .Values.output.jsonFile | quote }}
     html_output: {{ .Values.output.htmlFile | quote }}
+    daemon: {{ .Values.daemon }}
+    daemon_interval: {{ .Values.daemonInterval }}
+    exporter_port: {{ .Values.exporter.port }}
 
     thresholds:
       cpu_low: {{ .Values.thresholds.cpuLow }}

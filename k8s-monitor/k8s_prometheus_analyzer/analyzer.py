@@ -57,6 +57,10 @@ class Recommendation:
     total_cpu_usage: float = 0.0
     total_memory_mb: float = 0.0
 
+    # ── Baseline configuration ────────────────────────────────────────────
+    cpu_request: float | None = None
+    memory_request_mb: float | None = None
+
     suggestions: list[str] = field(default_factory=list)
     reasons: list[str] = field(default_factory=list)
     severity: str = SEVERITY_INFO
@@ -197,6 +201,8 @@ def analyze(
                     memory_usage_pct=mem_usage_pct,
                     total_cpu_usage=wm.total_cpu_usage,
                     total_memory_mb=wm.total_memory_mb,
+                    cpu_request=cpu_request,
+                    memory_request_mb=mem_request,
                     suggestions=suggestions,
                     reasons=reasons,
                     severity=_determine_severity(suggestions),

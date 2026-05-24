@@ -21,6 +21,7 @@ from .alerting.dispatcher import dispatch
 from .analyzer import SEVERITY_CRITICAL, Recommendation, analyze
 from .config import Config, load_config
 from .exceptions import ConfigError, K8sAnalyzerError, LicenseError, LicenseLimitExceededError
+from .exporter import registry, start_exporter
 from .fetcher import PrometheusClient
 from .license import verify_license
 from .reporter import html_report, json_report, table
@@ -202,6 +203,13 @@ exit codes:
         type=int,
         metavar="SECONDS",
         help="Interval in seconds to sleep between runs (default: 300)",
+    )
+
+    parser.add_argument(
+        "--exporter-port",
+        type=int,
+        metavar="PORT",
+        help="Port to bind the embedded Prometheus exporter server (default: 8000)",
     )
 
     alert = parser.add_argument_group("alerting")
@@ -436,6 +444,8 @@ def main() -> NoReturn:
         cfg.daemon = args.daemon
     if args.daemon_interval is not None:
         cfg.daemon_interval = args.daemon_interval
+    if args.exporter_port is not None:
+        cfg.exporter_port = args.exporter_port
 
     # ── GitOps CLI overrides ──────────────────────────────────────────────
     if args.gitops:
@@ -492,9 +502,16 @@ def main() -> NoReturn:
 
     if cfg.daemon:
         logger.info(
-            "Running in daemon mode. Scan interval: %d seconds",
+            "Running in daemon mode. Scan interval: %d seconds. Exporter port: %d",
             cfg.daemon_interval,
+            cfg.exporter_port,
         )
+        try:
+            exporter_server, exporter_thread = start_exporter(cfg.exporter_port)
+        except Exception as exc:
+            logger.error("Failed to start Prometheus exporter on port %d: %s", cfg.exporter_port, exc)
+            sys.exit(EXIT_ERROR)
+
         # Verify the license once before entering the loop so fatal license issues crash immediately
         try:
             client.check_availability()
@@ -521,11 +538,16 @@ def main() -> NoReturn:
         except K8sAnalyzerError as exc:
             logger.warning("Initial connection check encountered a transient error: %s. Continuing in loop.", exc)
 
+        license_is_valid = True
         while not shutdown_event.is_set():
             logger.info("Starting analysis cycle...")
             try:
-                _run_analysis_cycle(cfg, client)
+                recs = _run_analysis_cycle(cfg, client)
+                if recs is not None:
+                    registry.update(recs, license_valid=license_is_valid)
             except (LicenseError, ConfigError) as exc:
+                license_is_valid = False
+                registry.update([], license_valid=license_is_valid)
                 logger.error("Fatal license/config error encountered: %s. Terminating daemon.", exc)
                 sys.exit(EXIT_ERROR)
             except Exception as exc:  # noqa: BLE001
@@ -536,6 +558,13 @@ def main() -> NoReturn:
 
             logger.info("Cycle complete. Sleeping for %d seconds...", cfg.daemon_interval)
             shutdown_event.wait(timeout=cfg.daemon_interval)
+
+        logger.info("Stopping Prometheus metrics exporter...")
+        try:
+            exporter_server.shutdown()
+            exporter_server.server_close()
+        except Exception as exc:
+            logger.warning("Error stopping exporter server: %s", exc)
 
         logger.info("Daemon shut down cleanly.")
         sys.exit(EXIT_OK)
