@@ -99,7 +99,7 @@ def test_metrics_serialization_with_data(mock_recommendation: Recommendation) ->
     # Verify recommendation info labels
     info_line = (
         'k8s_analyzer_recommendation_info{namespace="production",workload="web-app",kind="Deployment",'
-        'severity="info",suggestions="Reduce CPU requests, Reduce memory requests"} 1.0'
+        'severity="info",suggestions="Reduce CPU requests, Reduce memory requests",pods="web-app-1,web-app-2,web-app-3"} 1.0'
     )
     assert info_line in text
 

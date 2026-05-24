@@ -100,7 +100,8 @@ class MetricsRegistry:
 
                     # Detailed recommendation metadata info
                     suggestions_str = ", ".join(rec.suggestions).replace('"', '\\"')
-                    info_lbl = f'{lbl},severity="{rec.severity}",suggestions="{suggestions_str}"'
+                    pods_str = ",".join(rec.pod_names).replace('"', '\\"')
+                    info_lbl = f'{lbl},severity="{rec.severity}",suggestions="{suggestions_str}",pods="{pods_str}"'
                     lines.append(f"k8s_analyzer_recommendation_info{{{info_lbl}}} 1.0")
 
             return "\n".join(lines) + "\n"

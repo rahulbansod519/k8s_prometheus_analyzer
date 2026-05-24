@@ -21,17 +21,17 @@ LABEL org.opencontainers.image.title="k8s-prometheus-analyzer" \
       org.opencontainers.image.source="https://github.com/rahulbansod519/k8s_prometheus_analyzer" \
       org.opencontainers.image.licenses="MIT"
 
+# Copy the built wheel from the builder stage and install it
+COPY --from=builder /dist/*.whl /tmp/
+RUN pip install --no-cache-dir /tmp/*.whl && rm /tmp/*.whl
+
 # Create a non-root user
 RUN useradd --create-home --shell /bin/sh analyzer
 USER analyzer
 WORKDIR /home/analyzer
 
-# Copy the built wheel from the builder stage and install it
-COPY --from=builder /dist/*.whl /tmp/
-RUN pip install --no-cache-dir /tmp/*.whl && rm /tmp/*.whl
-
 # Copy the example config for reference
-COPY config.example.yaml ./config.example.yaml
+COPY --chown=analyzer:analyzer config.example.yaml ./config.example.yaml
 
 ENTRYPOINT ["k8s-analyze"]
 CMD ["--help"]

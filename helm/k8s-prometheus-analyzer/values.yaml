@@ -155,6 +155,10 @@ exporter:
     type: ClusterIP
   serviceMonitor:
     enabled: false
+    namespace: ""
+    interval: 30s
+    additionalLabels: {}
+    metricRelabelings: []
 
 # ── Grafana Dashboard ─────────────────────────────────────────────────────────
 grafana:

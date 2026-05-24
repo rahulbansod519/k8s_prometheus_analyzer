@@ -67,6 +67,8 @@ spec:
             - name: config
               mountPath: /config
               readOnly: true
+            - name: reports
+              mountPath: {{ .Values.output.pvc.mountPath }}
             - name: tmp
               mountPath: /tmp
           resources:
@@ -75,6 +77,13 @@ spec:
         - name: config
           configMap:
             name: {{ include "k8s-prometheus-analyzer.fullname" . }}-config
+        - name: reports
+          {{- if .Values.output.pvc.name }}
+          persistentVolumeClaim:
+            claimName: {{ .Values.output.pvc.name }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
         - name: tmp
           emptyDir: {}
       {{- with .Values.nodeSelector }}

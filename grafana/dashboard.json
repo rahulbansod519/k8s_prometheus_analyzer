@@ -88,7 +88,7 @@
         },
         "textMode": "auto"
       }
-    ],
+    },
     {
       "collapsed": false,
       "gridPos": {
@@ -156,7 +156,7 @@
         },
         "textMode": "auto"
       }
-    ],
+    },
     {
       "collapsed": false,
       "gridPos": {
@@ -234,7 +234,7 @@
         },
         "textMode": "auto"
       }
-    ],
+    },
     {
       "collapsed": false,
       "gridPos": {
@@ -311,7 +311,7 @@
         },
         "textMode": "auto"
       }
-    ],
+    },
     {
       "collapsed": false,
       "gridPos": {
@@ -378,7 +378,7 @@
         },
         "showUnfilled": true
       }
-    ],
+    },
     {
       "collapsed": false,
       "gridPos": {
@@ -430,7 +430,7 @@
           "sort": "none"
         }
       }
-    ],
+    },
     {
       "collapsed": false,
       "gridPos": {
@@ -454,10 +454,19 @@
           },
           "editorMode": "code",
           "expr": "k8s_analyzer_recommendation_info",
+          "format": "table",
           "instant": true,
           "legendFormat": "",
           "range": false,
           "refId": "A"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "labelsToFields",
+          "options": {
+            "keepLabels": []
+          }
         }
       ],
       "options": {
@@ -497,6 +506,104 @@
             "matcher": {
               "id": "byName",
               "options": "Value"
+            },
+            "properties": [
+              {
+                "id": "custom",
+                "value": {
+                  "displayMode": "hidden"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "pod"
+            },
+            "properties": [
+              {
+                "id": "custom",
+                "value": {
+                  "displayMode": "hidden"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "instance"
+            },
+            "properties": [
+              {
+                "id": "custom",
+                "value": {
+                  "displayMode": "hidden"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "job"
+            },
+            "properties": [
+              {
+                "id": "custom",
+                "value": {
+                  "displayMode": "hidden"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "release"
+            },
+            "properties": [
+              {
+                "id": "custom",
+                "value": {
+                  "displayMode": "hidden"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "container"
+            },
+            "properties": [
+              {
+                "id": "custom",
+                "value": {
+                  "displayMode": "hidden"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "endpoint"
+            },
+            "properties": [
+              {
+                "id": "custom",
+                "value": {
+                  "displayMode": "hidden"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "service"
             },
             "properties": [
               {
