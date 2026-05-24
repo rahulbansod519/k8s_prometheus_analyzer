@@ -142,3 +142,18 @@ extraEnv: []
 extraEnvFrom: []
 # - secretRef:
 #     name: k8s-analyzer-secrets
+
+# ── Exporter (Prometheus metrics) ─────────────────────────────────────────────
+exporter:
+  port: 8000
+  service:
+    enabled: true
+    type: ClusterIP
+  serviceMonitor:
+    enabled: false
+
+# ── Grafana Dashboard ─────────────────────────────────────────────────────────
+grafana:
+  dashboard:
+    enabled: false
+    namespace: ""

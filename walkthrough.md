@@ -1,60 +1,66 @@
-# Walkthrough: Agent / Daemon Mode & GitOps Auto-PR Prototype
+# Walkthrough: Prometheus Exporter & Grafana Dashboard Integration
 
-This walkthrough documents the design, implementation, and testing verification for the features completed today: the continuous **Agent/Daemon Mode** and the **GitOps Auto-PR Prototype**.
+This walkthrough documents the implementation, testing, and packaging of the **embedded Prometheus metrics exporter** and the pre-configured **Grafana Dashboard** for `k8s-prometheus-analyzer`.
 
 ---
 
 ## 🛠️ Changes Implemented
 
-### 1. Configuration & CLI Infrastructure
+### 1. Codebase Extensions
 * **[config.py](file:///Users/rahulbansod01/Projects/k8s_prometheus_analyzer/k8s-monitor/k8s_prometheus_analyzer/config.py)**:
-  * Added `daemon` and `daemon_interval` parameters to the core `Config` dataclass to enable continuous checks.
-  * Created `GitOpsConfig` fields (`enabled`, `github_token`, `github_repo`, `github_branch`, and `manifest_path`) under `Config.gitops` to store user authentication and target infrastructure repository details.
-  * Extended configuration parsers (`_apply_dict` and `_apply_env`) to handle `K8S_ANALYZER_GITOPS_*` environment variables and settings overrides.
+  * Added the `exporter_port` field (defaulting to `8000`) to the main configuration class.
+  * Added support for `K8S_ANALYZER_EXPORTER_PORT` environment variable and YAML mapping overrides.
+* **[analyzer.py](file:///Users/rahulbansod01/Projects/k8s_prometheus_analyzer/k8s-monitor/k8s_prometheus_analyzer/analyzer.py)**:
+  * Extended the `Recommendation` dataclass to capture baseline CPU requests (`cpu_request`) and memory requests (`memory_request_mb`) to calculate estimated sizing savings dynamically.
+* **[exporter.py](file:///Users/rahulbansod01/Projects/k8s_prometheus_analyzer/k8s-monitor/k8s_prometheus_analyzer/exporter.py)** [NEW]:
+  * Implemented an embedded HTTP metrics server utilizing standard Python library (`http.server`).
+  * Created a thread-safe `MetricsRegistry` storing daemon execution status and active right-sizing recommendations.
+  * Formatted metrics matching Prometheus text exposition format (version 0.0.4) exposing:
+    * `k8s_analyzer_recommendation_cpu_cores` (gauge): Recommended CPU size.
+    * `k8s_analyzer_recommendation_memory_bytes` (gauge): Recommended memory size.
+    * `k8s_analyzer_savings_cpu_cores` & `k8s_analyzer_savings_memory_bytes` (gauges): Potential resources salvageable.
+    * `k8s_analyzer_recommendation_info` (gauge): Multi-value labels indicating severity and specific suggestion details.
+    * `k8s_analyzer_run_cycles_total` (counter) & `k8s_analyzer_last_run_timestamp_seconds` (gauge): Uptime and telemetry metadata.
 * **[cli.py](file:///Users/rahulbansod01/Projects/k8s_prometheus_analyzer/k8s-monitor/k8s_prometheus_analyzer/cli.py)**:
-  * Extracted the execution cycle logic (connect, licensing check, query Prometheus, calculate sizing rules, write reports, and alert) into a re-usable helper function `_run_analysis_cycle`.
-  * Added CLI argument support for `--daemon`, `--daemon-interval`, `--gitops`, `--github-token`, `--github-repo`, `--github-branch`, and `--manifest-path`.
-  * Configured signal handling listeners for standard termination signals `SIGINT` (Ctrl+C) and `SIGTERM` (Kubernetes termination) using `threading.Event`.
-  * Designed the continuous daemon run loop which triggers `_run_analysis_cycle` periodically and performs a responsive sleep using `shutdown_event.wait(timeout=...)`.
-  * Implemented strict error division: transient Prometheus queries or fetch errors are caught and logged to keep the daemon alive, whereas fatal configuration or licensing issues cause the daemon to terminate immediately with exit code 3.
+  * Integrated the `--exporter-port` command-line flag.
+  * Configured the background HTTP server thread startup when launching in daemon mode (`--daemon`).
+  * Programmed automatic registry updates with analysis recommendation results upon each successful cycle.
+  * Standardized socket closure and server shutdown inside the SIGINT/SIGTERM termination handlers to ensure clean container exit.
 
-### 2. GitOps Automation Engine
-* **[gitops.py](file:///Users/rahulbansod01/Projects/k8s_prometheus_analyzer/k8s-monitor/k8s_prometheus_analyzer/gitops.py)**:
-  * Created a dedicated module interfacing with the GitHub REST API (using the existing `requests` library) to run an automated PR pipeline.
-  * Implemented `update_yaml_manifest` which safely loads multi-document Kubernetes manifests, locates workloads matching optimization suggestions (Deployments, StatefulSets, DaemonSets, Jobs, CronJobs, Pods), and updates CPU/Memory request parameters using standard FinOps buffers (25% safety buffer for CPU, 20% for memory).
-  * Designed `open_github_pr` executing the complete 5-step API workflow:
-    1. Fetching the base branch reference SHA.
-    2. Spawning a unique optimization branch (`refs/heads/k8s-optimize-<timestamp>`).
-    3. Downloading the current resource manifest file from GitHub.
-    4. Injecting CPU/Memory changes via YAML modification and committing the update.
-    5. Submitting a Pull Request containing a clean markdown-formatted table explaining the cost and capacity optimization rationale.
-
-### 3. Build & Test Infrastructure
-* **[pyproject.toml](file:///Users/rahulbansod01/Projects/k8s_prometheus_analyzer/k8s-monitor/pyproject.toml)**: Added `requests-mock>=1.11.0` to the `dev` optional-dependencies list to support mocking GitHub REST API responses in unit tests.
-* **[test_alerting.py](file:///Users/rahulbansod01/Projects/k8s_prometheus_analyzer/k8s-monitor/tests/test_alerting.py)**: Fixed dictionary type unpacking in test helpers to satisfy strict `mypy` typing checks.
+### 2. Helm & Grafana Packaging
+* **[grafana/dashboard.json](file:///Users/rahulbansod01/Projects/k8s_prometheus_analyzer/grafana/dashboard.json)** [NEW]:
+  * Built a dark-themed Grafana dashboard configuration incorporating:
+    * Total CPU cores and Memory (GiB) salvageable KPI stat panels.
+    * Bar gauges distributing recommendations by severity levels (critical, warning, info).
+    * Dynamic tables visualizing namespaced optimization workloads, current configurations, recommended configurations, and reasons.
+* **[templates/grafana-dashboard.yaml](file:///Users/rahulbansod01/Projects/k8s_prometheus_analyzer/helm/k8s-prometheus-analyzer/templates/grafana-dashboard.yaml)** [NEW]:
+  * Created a ConfigMap template wrapping the `dashboard.json` payload, labeled for Grafana Sidecar auto-import (`grafana_dashboard: "1"`).
+* **[values.yaml](file:///Users/rahulbansod01/Projects/k8s_prometheus_analyzer/helm/k8s-prometheus-analyzer/values.yaml)**:
+  * Exposed configuration parameters for custom exporter ports, ClusterIP metrics service, ServiceMonitor creation, and Grafana dashboard deployment namespaces.
 
 ---
 
 ## 🧪 Verification & Testing Results
 
 ### Automated Unit Tests
-* **[tests/test_cli.py](file:///Users/rahulbansod01/Projects/k8s_prometheus_analyzer/k8s-monitor/tests/test_cli.py)**: Covered signal shutdowns, daemon parser variables, transient Prometheus client error loop retention, and fatal licensing crashes.
-* **[tests/test_gitops.py](file:///Users/rahulbansod01/Projects/k8s_prometheus_analyzer/k8s-monitor/tests/test_gitops.py)**: Built mock GitHub REST endpoints to simulate successful PR creation, base branch reference missing, and zero optimization suggestions updates (manifest unchanged).
+* **[tests/test_exporter.py](file:///Users/rahulbansod01/Projects/k8s_prometheus_analyzer/k8s-monitor/tests/test_exporter.py)** [NEW]:
+  * Verified correct serialization of metrics and labels in Prometheus plain-text layout.
+  * Validated calculations of estimated core and memory savings.
+  * Simulated the HTTP server binding to a port and verified GET `/metrics` returned status `200` with the correct content headers.
+* **[tests/test_cli.py](file:///Users/rahulbansod01/Projects/k8s_prometheus_analyzer/k8s-monitor/tests/test_cli.py)**:
+  * Added `mock_exporter` autouse fixture to isolate CLI runner tests from background thread execution and socket collisions.
 
-### Test Suite Execution Output
-Running the full test suite in the virtual environment verifies that all 143 tests pass successfully with the total coverage reaching **80.87%** (above the 80% mandatory threshold):
-
+### Test execution summary:
 ```bash
-============================= 143 passed in 10.80s =============================
-Required test coverage of 80% reached. Total coverage: 80.87%
+============================= 148 passed in 11.45s =============================
+Required test coverage of 80% reached. Total coverage: 81.62%
 ```
 
-### Static Analysis and Code Quality
-Run results show 100% clean check status with no issues:
+### Code Quality Compliance:
 ```bash
 $ ./venv/bin/ruff check .
 All checks passed!
 
 $ ./venv/bin/mypy .
-Success: no issues found in 31 source files
+Success: no issues found in 33 source files
 ```

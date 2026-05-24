@@ -1,0 +1,13 @@
+{{- if .Values.grafana.dashboard.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "k8s-prometheus-analyzer.fullname" . }}-dashboard
+  namespace: {{ default .Release.Namespace .Values.grafana.dashboard.namespace | quote }}
+  labels:
+    {{- include "k8s-prometheus-analyzer.labels" . | nindent 4 }}
+    grafana_dashboard: "1"
+data:
+  k8s-prometheus-analyzer-dashboard.json: |-
+{{ .Files.Get "grafana/dashboard.json" | indent 4 }}
+{{- end }}
